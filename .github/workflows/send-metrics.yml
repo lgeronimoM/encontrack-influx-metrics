@@ -12,9 +12,7 @@ on:
         required: false
         type: string
         default: 'github_deploys'
-    # NO declaramos secrets aquí - usamos los del repo centralizado
 
-# Permisos mínimos necesarios
 permissions:
   contents: read
 
@@ -25,12 +23,10 @@ jobs:
       - name: 📊 Enviar métrica a InfluxDB
         shell: bash
         env:
-          # Secretos del repositorio encontrack-influx-metrics
           INFLUX_URL: ${{ secrets.INFLUX_URL }}
           INFLUX_ORG: ${{ secrets.INFLUX_ORG }}
           INFLUX_BUCKET: ${{ secrets.INFLUX_BUCKET }}
           INFLUX_TOKEN: ${{ secrets.INFLUX_TOKEN }}
-          # Datos del repositorio llamador
           MEASUREMENT: ${{ inputs.measurement }}
           GH_ACTOR: ${{ github.actor }}
           GH_REPOSITORY: ${{ github.repository }}
@@ -43,31 +39,16 @@ jobs:
         run: |
           set -euo pipefail
           
-          echo "🔍 Verificando configuración..."
+          echo "🔍 Debug: Verificando secretos..."
+          echo "INFLUX_URL presente: $([ -n "$INFLUX_URL" ] && echo 'SI' || echo 'NO')"
+          echo "INFLUX_ORG presente: $([ -n "$INFLUX_ORG" ] && echo 'SI' || echo 'NO')"
+          echo "INFLUX_BUCKET presente: $([ -n "$INFLUX_BUCKET" ] && echo 'SI' || echo 'NO')"
+          echo "INFLUX_TOKEN presente: $([ -n "$INFLUX_TOKEN" ] && echo 'SI' || echo 'NO')"
+          
           if [ -z "$INFLUX_URL" ] || [ -z "$INFLUX_TOKEN" ]; then
             echo "❌ Error: Secretos de InfluxDB no configurados en encontrack-influx-metrics"
+            echo "Configúralos en: Settings → Secrets and variables → Actions"
             exit 1
-          fi
-          
-          # Validar que solo repos autorizados puedan usar esto
-          ALLOWED_REPOS=(
-            "lgeronimoM/lgeronimoM-TallerMGF"
-            "lgeronimoM/otro-repo"
-            # Agrega más repos según necesites
-          )
-          
-          AUTHORIZED=false
-          for repo in "${ALLOWED_REPOS[@]}"; do
-            if [ "$GH_REPOSITORY" = "$repo" ]; then
-              AUTHORIZED=true
-              break
-            fi
-          done
-          
-          if [ "$AUTHORIZED" = false ]; then
-            echo "⚠️ Advertencia: Repo $GH_REPOSITORY no está en la lista autorizada"
-            echo "   Si es legítimo, agrégalo al workflow"
-            # Opcional: exit 1 para bloquear repos no autorizados
           fi
           
           # Función de escape para Line Protocol
@@ -88,10 +69,10 @@ jobs:
             TS=$(date -u +%s%N)
           fi
           
-          # Line Protocol con tags adicionales
+          # Line Protocol
           LINE="${measurement},user=${user},repo=${repo},branch=${branch},status=${status},workflow=${workflow},sha=${sha} value=1,run_number=${GH_RUN_NUMBER}i ${TS}"
           
-          echo "📤 Enviando métrica..."
+          echo "📤 Enviando métrica a InfluxDB..."
           echo "  Repo: ${GH_REPOSITORY}"
           echo "  Branch: ${GH_REF_NAME}"
           echo "  Status: ${STATUS}"
@@ -104,5 +85,5 @@ jobs:
             echo "✅ Métrica enviada exitosamente a InfluxDB"
           else
             echo "⚠️ No se pudo enviar la métrica (código: $?)"
-            exit 0  # No fallar el workflow por esto
+            exit 0
           fi
