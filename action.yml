@@ -1,0 +1,94 @@
+# Pega aquí el contenido del artifact
+name: 'InfluxDB Metrics Reporter'
+description: 'Envía métricas de deploy a InfluxDB usando Line Protocol'
+author: 'Luis Gerónimo'
+
+inputs:
+  influx_url:
+    description: 'URL de InfluxDB (ej: http://10.10.4.81:8087)'
+    required: true
+  influx_org:
+    description: 'Organización de InfluxDB'
+    required: true
+  influx_bucket:
+    description: 'Bucket de InfluxDB'
+    required: true
+  influx_token:
+    description: 'Token de autenticación de InfluxDB'
+    required: true
+  measurement:
+    description: 'Nombre de la medición (measurement) en InfluxDB'
+    required: false
+    default: 'github_deploys'
+  job_status:
+    description: 'Estado del job (success, failure, cancelled)'
+    required: false
+    default: 'unknown'
+
+runs:
+  using: composite
+  steps:
+    - name: 📊 Enviar métrica a InfluxDB
+      shell: bash
+      env:
+        INFLUX_URL: ${{ inputs.influx_url }}
+        INFLUX_ORG: ${{ inputs.influx_org }}
+        INFLUX_BUCKET: ${{ inputs.influx_bucket }}
+        INFLUX_TOKEN: ${{ inputs.influx_token }}
+        MEASUREMENT: ${{ inputs.measurement }}
+        GH_ACTOR: ${{ github.actor }}
+        GH_REPOSITORY: ${{ github.repository }}
+        GH_REF_NAME: ${{ github.ref_name }}
+        GH_SHA: ${{ github.sha }}
+        GH_TS: ${{ github.event.head_commit.timestamp }}
+        GH_WORKFLOW: ${{ github.workflow }}
+        GH_RUN_NUMBER: ${{ github.run_number }}
+        STATUS: ${{ inputs.job_status }}
+      run: |
+        set -euo pipefail
+        
+        echo "🔍 Verificando configuración..."
+        if [ -z "$INFLUX_URL" ] || [ -z "$INFLUX_TOKEN" ]; then
+          echo "❌ Error: Configuración de InfluxDB incompleta"
+          exit 0  # No fallar el workflow
+        fi
+        
+        # Función de escape para Line Protocol
+        esc() { sed -E 's/([ ,=])/\\\1/g'; }
+        
+        user=$(printf '%s' "${GH_ACTOR:-unknown}" | esc)
+        repo=$(printf '%s' "${GH_REPOSITORY:-unknown}" | esc)
+        branch=$(printf '%s' "${GH_REF_NAME:-unknown}" | esc)
+        status=$(printf '%s' "${STATUS:-unknown}" | esc)
+        workflow=$(printf '%s' "${GH_WORKFLOW:-unknown}" | esc)
+        sha=$(printf '%s' "${GH_SHA:0:7}" | esc)
+        measurement="${MEASUREMENT:-github_deploys}"
+        
+        # Timestamp en nanosegundos
+        if [ -n "${GH_TS:-}" ]; then
+          TS=$(date -u -d "$GH_TS" +%s%N 2>/dev/null || date -u +%s%N)
+        else
+          TS=$(date -u +%s%N)
+        fi
+        
+        # Line Protocol
+        LINE="${measurement},user=${user},repo=${repo},branch=${branch},status=${status},workflow=${workflow},sha=${sha} value=1,run_number=${GH_RUN_NUMBER}i ${TS}"
+        
+        echo "📤 Enviando métrica a InfluxDB..."
+        echo "  Repo: ${GH_REPOSITORY}"
+        echo "  Branch: ${GH_REF_NAME}"
+        echo "  Status: ${STATUS}"
+        echo "  SHA: ${GH_SHA:0:7}"
+        
+        if curl -sfS -X POST "$INFLUX_URL/api/v2/write?org=$INFLUX_ORG&bucket=$INFLUX_BUCKET&precision=ns" \
+          -H "Authorization: Token $INFLUX_TOKEN" \
+          -H "Content-Type: text/plain; charset=utf-8" \
+          --data-binary "$LINE"; then
+          echo "✅ Métrica enviada exitosamente a InfluxDB"
+        else
+          echo "⚠️ No se pudo enviar la métrica (código: $?)"
+        fi
+
+branding:
+  icon: 'activity'
+  color: 'blue'
