@@ -1,29 +1,19 @@
-# Pega aquí el contenido del artifact
 name: 'InfluxDB Metrics Reporter'
 description: 'Envía métricas de deploy a InfluxDB usando Line Protocol'
 author: 'Luis Gerónimo'
 
 inputs:
-  influx_url:
-    description: 'URL de InfluxDB (ej: http://10.10.4.81:8087)'
-    required: true
-  influx_org:
-    description: 'Organización de InfluxDB'
-    required: true
-  influx_bucket:
-    description: 'Bucket de InfluxDB'
-    required: true
   influx_token:
     description: 'Token de autenticación de InfluxDB'
     required: true
-  measurement:
-    description: 'Nombre de la medición (measurement) en InfluxDB'
-    required: false
-    default: 'github_deploys'
   job_status:
     description: 'Estado del job (success, failure, cancelled)'
     required: false
     default: 'unknown'
+  measurement:
+    description: 'Nombre de la medición (measurement) en InfluxDB'
+    required: false
+    default: 'github_deploys'
 
 runs:
   using: composite
@@ -31,11 +21,14 @@ runs:
     - name: 📊 Enviar métrica a InfluxDB
       shell: bash
       env:
-        INFLUX_URL: ${{ inputs.influx_url }}
-        INFLUX_ORG: ${{ inputs.influx_org }}
-        INFLUX_BUCKET: ${{ inputs.influx_bucket }}
+        # ⭐ VALORES FIJOS - Configuración de InfluxDB
+        INFLUX_URL: http://10.10.4.81:8087
+        INFLUX_ORG: myorg
+        INFLUX_BUCKET: github
+        # Token desde input (secreto del repo llamador)
         INFLUX_TOKEN: ${{ inputs.influx_token }}
         MEASUREMENT: ${{ inputs.measurement }}
+        # Variables de contexto de GitHub
         GH_ACTOR: ${{ github.actor }}
         GH_REPOSITORY: ${{ github.repository }}
         GH_REF_NAME: ${{ github.ref_name }}
@@ -75,6 +68,9 @@ runs:
         LINE="${measurement},user=${user},repo=${repo},branch=${branch},status=${status},workflow=${workflow},sha=${sha} value=1,run_number=${GH_RUN_NUMBER}i ${TS}"
         
         echo "📤 Enviando métrica a InfluxDB..."
+        echo "  URL: ${INFLUX_URL}"
+        echo "  Org: ${INFLUX_ORG}"
+        echo "  Bucket: ${INFLUX_BUCKET}"
         echo "  Repo: ${GH_REPOSITORY}"
         echo "  Branch: ${GH_REF_NAME}"
         echo "  Status: ${STATUS}"
